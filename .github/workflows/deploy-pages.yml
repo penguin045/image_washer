@@ -6,6 +6,9 @@ on:
       - main
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 permissions:
   contents: read
   pages: write
@@ -35,7 +38,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install wasm-bindgen
-        run: cargo install wasm-bindgen-cli --version 0.2.84 --locked
+        run: cargo install wasm-bindgen-cli --version 0.2.118 --locked
 
       - name: Build static site
         run: bash scripts/build-pages.sh

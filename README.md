@@ -18,7 +18,7 @@
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.84 --locked
+cargo install wasm-bindgen-cli --version 0.2.118 --locked
 ```
 
 ビルド:

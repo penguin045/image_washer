@@ -8,7 +8,7 @@ PKG_DIR="$DOCS_DIR/pkg"
 
 if ! command -v wasm-bindgen >/dev/null 2>&1; then
   echo "wasm-bindgen is required. Install it with:" >&2
-  echo "cargo install wasm-bindgen-cli --version 0.2.84" >&2
+  echo "cargo install wasm-bindgen-cli --version 0.2.118 --locked" >&2
   exit 1
 fi
 
