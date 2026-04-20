@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>imageWasher</title>
+    <meta
+      name="description"
+      content="画像をブラウザ内だけで再エンコードして、EXIF、GPS、AI生成タグなどのメタデータを落とします。"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Browser-only metadata shredder</p>
+        <h1>imageWasher</h1>
+        <p class="lede">
+          画像は端末から外に出しません。ブラウザ内で再デコードして再保存し、
+          <span>EXIF</span>、<span>GPS</span>、<span>XMP</span>、PNG テキスト、
+          AI 生成タグを落とします。
+        </p>
+      </section>
+
+      <section class="panel controls">
+        <div
+          id="dropzone"
+          class="dropzone"
+          tabindex="0"
+          role="button"
+          aria-label="画像を選択"
+        >
+          <input id="file-input" type="file" accept=".jpg,.jpeg,.png,.webp,.tif,.tiff,.bmp,.gif,image/*" multiple hidden />
+          <div class="drop-copy">
+            <strong>画像をここへ落とす</strong>
+            <p>またはクリックして選択</p>
+          </div>
+          <div class="chip-row">
+            <span class="chip">JPEG</span>
+            <span class="chip">PNG</span>
+            <span class="chip">WebP</span>
+            <span class="chip">TIFF</span>
+            <span class="chip">BMP</span>
+            <span class="chip">GIF</span>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="wash-button" class="primary" disabled>洗浄する</button>
+          <button id="download-all-button" class="secondary" disabled>ZIP で保存</button>
+        </div>
+
+        <div class="status-line">
+          <span id="status-pill" class="status-pill">WASM を読み込み中</span>
+          <span class="note">アニメーション GIF は未対応</span>
+        </div>
+      </section>
+
+      <section class="panel queue">
+        <div class="section-head">
+          <h2>Queue</h2>
+          <p id="queue-summary">まだ画像はありません</p>
+        </div>
+        <ul id="result-list" class="result-list"></ul>
+      </section>
+    </main>
+
+    <template id="result-template">
+      <li class="result-item">
+        <div class="result-main">
+          <p class="filename"></p>
+          <p class="meta"></p>
+        </div>
+        <div class="result-actions">
+          <span class="result-state"></span>
+          <button class="download-button secondary" disabled>保存</button>
+        </div>
+      </li>
+    </template>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+  </html>

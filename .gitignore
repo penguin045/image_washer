@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+tmp_manual/
+tmp_out/
+target/
+input/
+output/
