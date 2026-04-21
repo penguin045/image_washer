@@ -2,8 +2,12 @@ use std::io::{BufReader, Cursor};
 use std::path::{Path, PathBuf};
 
 use exif::{In, Reader as ExifReader, Tag, Value};
+use image::codecs::jpeg::JpegEncoder;
+use image::codecs::png::{
+    CompressionType as PngCompressionType, FilterType as PngFilterType, PngEncoder,
+};
 use image::imageops;
-use image::{DynamicImage, ImageFormat};
+use image::{DynamicImage, GenericImageView, ImageEncoder, ImageFormat};
 
 pub const DEFAULT_INPUT_DIR: &str = "input";
 pub const DEFAULT_OUTPUT_DIR: &str = "output";
@@ -111,12 +115,7 @@ pub fn wash_image_bytes(bytes: &[u8], format: ImageFormat) -> Result<Vec<u8>, St
 
     image = apply_orientation(image, bytes)?;
 
-    let mut output = Cursor::new(Vec::new());
-    image
-        .write_to(&mut output, format)
-        .map_err(|err| format!("failed to encode image: {err}"))?;
-
-    Ok(output.into_inner())
+    encode_clean_image(&image, format, bytes.len())
 }
 
 pub fn wash_image_bytes_from_name(bytes: &[u8], file_name: &str) -> Result<Vec<u8>, String> {
@@ -163,6 +162,64 @@ fn apply_orientation(image: DynamicImage, bytes: &[u8]) -> Result<DynamicImage, 
     };
 
     Ok(applied)
+}
+
+fn encode_clean_image(
+    image: &DynamicImage,
+    format: ImageFormat,
+    source_len: usize,
+) -> Result<Vec<u8>, String> {
+    match format {
+        ImageFormat::Jpeg => encode_jpeg_size_conscious(image, source_len),
+        ImageFormat::Png => encode_png_best(image),
+        _ => {
+            let mut output = Cursor::new(Vec::new());
+            image
+                .write_to(&mut output, format)
+                .map_err(|err| format!("failed to encode image: {err}"))?;
+            Ok(output.into_inner())
+        }
+    }
+}
+
+fn encode_png_best(image: &DynamicImage) -> Result<Vec<u8>, String> {
+    let (width, height) = image.dimensions();
+    let mut output = Cursor::new(Vec::new());
+
+    PngEncoder::new_with_quality(
+        &mut output,
+        PngCompressionType::Best,
+        PngFilterType::Adaptive,
+    )
+    .write_image(image.as_bytes(), width, height, image.color())
+    .map_err(|err| format!("failed to encode image: {err}"))?;
+
+    Ok(output.into_inner())
+}
+
+fn encode_jpeg_size_conscious(image: &DynamicImage, source_len: usize) -> Result<Vec<u8>, String> {
+    let rgb = image.to_rgb8();
+    let (width, height) = rgb.dimensions();
+    let mut smallest: Option<Vec<u8>> = None;
+
+    for quality in [75_u8, 68_u8, 60_u8] {
+        let mut output = Cursor::new(Vec::new());
+        JpegEncoder::new_with_quality(&mut output, quality)
+            .write_image(rgb.as_raw(), width, height, image::ColorType::Rgb8)
+            .map_err(|err| format!("failed to encode image: {err}"))?;
+
+        let encoded = output.into_inner();
+        if encoded.len() <= source_len {
+            return Ok(encoded);
+        }
+
+        match &smallest {
+            Some(current) if current.len() <= encoded.len() => {}
+            _ => smallest = Some(encoded),
+        }
+    }
+
+    smallest.ok_or_else(|| "failed to encode image".to_string())
 }
 
 #[cfg(target_arch = "wasm32")]
