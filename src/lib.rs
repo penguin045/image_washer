@@ -106,6 +106,14 @@ pub fn infer_format_from_name(name: &str) -> Result<ImageFormat, String> {
 }
 
 pub fn wash_image_bytes(bytes: &[u8], format: ImageFormat) -> Result<Vec<u8>, String> {
+    if matches!(format, ImageFormat::Png) {
+        return strip_png_metadata_chunks(bytes).or_else(|_| reencode_image_bytes(bytes, format));
+    }
+
+    reencode_image_bytes(bytes, format)
+}
+
+fn reencode_image_bytes(bytes: &[u8], format: ImageFormat) -> Result<Vec<u8>, String> {
     let mut image = image::load_from_memory_with_format(bytes, format)
         .map_err(|err| format!("failed to decode image: {err}"))?;
 
@@ -222,6 +230,57 @@ fn encode_jpeg_size_conscious(image: &DynamicImage, source_len: usize) -> Result
     smallest.ok_or_else(|| "failed to encode image".to_string())
 }
 
+fn strip_png_metadata_chunks(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+
+    if !bytes.starts_with(PNG_SIGNATURE) {
+        return Err("not a PNG file".to_string());
+    }
+
+    let mut offset = PNG_SIGNATURE.len();
+    let mut output = Vec::with_capacity(bytes.len());
+    output.extend_from_slice(PNG_SIGNATURE);
+
+    while offset + 12 <= bytes.len() {
+        let length = u32::from_be_bytes([
+            bytes[offset],
+            bytes[offset + 1],
+            bytes[offset + 2],
+            bytes[offset + 3],
+        ]) as usize;
+        let chunk_start = offset;
+        let chunk_type_start = offset + 4;
+        let data_start = offset + 8;
+        let crc_start = data_start + length;
+        let next_offset = crc_start + 4;
+
+        if next_offset > bytes.len() {
+            return Err("truncated PNG chunk".to_string());
+        }
+
+        let chunk_type = &bytes[chunk_type_start..data_start];
+        if chunk_type == b"acTL" || chunk_type == b"fcTL" || chunk_type == b"fdAT" {
+            return Err("animated PNG is not supported".to_string());
+        }
+
+        if should_keep_png_chunk(chunk_type) {
+            output.extend_from_slice(&bytes[chunk_start..next_offset]);
+        }
+
+        offset = next_offset;
+
+        if chunk_type == b"IEND" {
+            return Ok(output);
+        }
+    }
+
+    Err("missing PNG IEND chunk".to_string())
+}
+
+fn should_keep_png_chunk(chunk_type: &[u8]) -> bool {
+    matches!(chunk_type, b"IHDR" | b"PLTE" | b"IDAT" | b"IEND" | b"tRNS")
+}
+
 #[cfg(target_arch = "wasm32")]
 mod wasm_exports {
     use wasm_bindgen::prelude::*;
@@ -237,6 +296,8 @@ mod wasm_exports {
 mod tests {
     use super::*;
     use image::codecs::jpeg::JpegEncoder;
+    use image::codecs::png::PngEncoder;
+    use image::ImageEncoder;
     use image::RgbImage;
 
     #[test]
@@ -291,5 +352,78 @@ mod tests {
             wash_image_bytes_from_name(&source, "test.jpg").expect("washed jpeg should encode");
 
         assert!(washed.windows(6).all(|window| window != b"Exif\0\0"));
+    }
+
+    #[test]
+    fn wash_image_removes_novelai_png_text_chunks() {
+        let image = RgbImage::from_pixel(4, 4, image::Rgb([0, 128, 255]));
+        let mut source = Vec::new();
+        PngEncoder::new(&mut source)
+            .write_image(image.as_raw(), 4, 4, image::ColorType::Rgb8)
+            .expect("source png should encode");
+
+        let source = insert_png_chunk(&source, b"tEXt", b"Description\x00masterpiece, 1girl");
+        let source = insert_png_chunk(&source, b"iTXt", b"Comment\x00\x00\x00\x00\x00NovelAI tags");
+        let source = insert_png_chunk(&source, b"eXIf", b"Exif\x00\x00NovelAI");
+
+        let washed =
+            wash_image_bytes_from_name(&source, "novelai.png").expect("washed png should encode");
+
+        assert!(has_png_chunk(&source, b"tEXt"));
+        assert!(has_png_chunk(&source, b"iTXt"));
+        assert!(has_png_chunk(&source, b"eXIf"));
+        assert!(!has_png_chunk(&washed, b"tEXt"));
+        assert!(!has_png_chunk(&washed, b"iTXt"));
+        assert!(!has_png_chunk(&washed, b"eXIf"));
+        assert!(has_png_chunk(&washed, b"IHDR"));
+        assert!(has_png_chunk(&washed, b"IDAT"));
+        assert!(has_png_chunk(&washed, b"IEND"));
+    }
+
+    fn insert_png_chunk(source: &[u8], chunk_type: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let ihdr_end = 8 + 4 + 4 + 13 + 4;
+        let mut chunk = Vec::new();
+        chunk.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        chunk.extend_from_slice(chunk_type);
+        chunk.extend_from_slice(data);
+        chunk.extend_from_slice(&crc32(chunk_type, data).to_be_bytes());
+
+        let mut output = Vec::new();
+        output.extend_from_slice(&source[..ihdr_end]);
+        output.extend_from_slice(&chunk);
+        output.extend_from_slice(&source[ihdr_end..]);
+        output
+    }
+
+    fn has_png_chunk(source: &[u8], target: &[u8; 4]) -> bool {
+        let mut offset = 8;
+        while offset + 12 <= source.len() {
+            let length = u32::from_be_bytes([
+                source[offset],
+                source[offset + 1],
+                source[offset + 2],
+                source[offset + 3],
+            ]) as usize;
+            let chunk_type = &source[offset + 4..offset + 8];
+            if chunk_type == target {
+                return true;
+            }
+            offset += 12 + length;
+        }
+        false
+    }
+
+    fn crc32(chunk_type: &[u8; 4], data: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFF_u32;
+
+        for byte in chunk_type.iter().chain(data.iter()) {
+            crc ^= u32::from(*byte);
+            for _ in 0..8 {
+                let mask = 0_u32.wrapping_sub(crc & 1);
+                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+            }
+        }
+
+        !crc
     }
 }
