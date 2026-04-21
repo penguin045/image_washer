@@ -8,6 +8,8 @@
 - 画像はサーバーへ送信しません
 - 複数ファイルをまとめて処理できます
 - ファイルごとにも、まとめて ZIP でもダウンロードできます
+- PWA としてインストールできます
+- 一度読み込むと、基本アセットはオフラインでも動きます
 - GitHub Pages にそのまま載せられます
 
 静的サイトのソースは [web/index.html](/Users/yanase/Documents/code/imageWasher/web/index.html)、Pages 向けの出力は `docs/` です。

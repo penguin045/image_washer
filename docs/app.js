@@ -20,6 +20,7 @@ boot();
 
 async function boot() {
   bindEvents();
+  registerServiceWorker();
 
   try {
     await init();
@@ -109,14 +110,14 @@ async function processFiles() {
         const washed = washImage(bytes, file.name);
         const blob = new Blob([washed], { type: file.type || inferMime(file.name) });
 
-      state.results[index] = {
-        ...state.results[index],
-        status: "done",
-        message: "準備完了",
-        outputSize: blob.size,
-        blob,
-        url: URL.createObjectURL(blob),
-      };
+        state.results[index] = {
+          ...state.results[index],
+          status: "done",
+          message: "準備完了",
+          outputSize: blob.size,
+          blob,
+          url: URL.createObjectURL(blob),
+        };
       } catch (error) {
         state.results[index] = {
           ...state.results[index],
@@ -138,6 +139,18 @@ async function processFiles() {
     );
     syncButtons();
   }
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) {
+    return;
+  }
+
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch((error) => {
+      console.warn("Service worker registration failed", error);
+    });
+  });
 }
 
 function renderResults() {
